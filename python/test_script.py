@@ -1,6 +1,14 @@
 import pygame
 import time
 import numpy as np
+import os
+import glob
+import pickle
+try:
+    from tkinter import Tk, filedialog
+except Exception:
+    Tk = None
+    filedialog = None
 try:
     import plotly.graph_objects as go
     import plotly.express as px
@@ -283,6 +291,62 @@ def reset_state():
     playback_start_time = None
     recording_start_time = None
 
+def next_character_filename(base_dir=None):
+    """Return next available filename like character_0.pkl, character_1.pkl, ..."""
+    if base_dir is None:
+        base_dir = os.getcwd()
+    pattern = os.path.join(base_dir, "character_*.pkl")
+    existing = glob.glob(pattern)
+    nums = []
+    for p in existing:
+        name = os.path.basename(p)
+        try:
+            n = int(name.split('_')[1].split('.')[0])
+            nums.append(n)
+        except Exception:
+            continue
+    i = 0
+    while i in nums:
+        i += 1
+    return os.path.join(base_dir, f"character_{i}.pkl")
+
+def save_character(character, path=None):
+    """Pickle the character to disk; chooses next name if path is None."""
+    if path is None:
+        path = next_character_filename()
+    try:
+        with open(path, 'wb') as f:
+            pickle.dump(character, f)
+        print(f"Saved character -> {path}")
+        return path
+    except Exception as e:
+        print("Failed to save character:", e)
+        return None
+
+def load_character_via_dialog(initial_dir=None):
+    """Open file dialog and return loaded Character or None."""
+    if Tk is None or filedialog is None:
+        print("tkinter file dialog unavailable. Cannot load file.")
+        return None
+    root = Tk()
+    root.withdraw()
+    try:
+        fname = filedialog.askopenfilename(initialdir=(initial_dir or os.getcwd()),
+                                           title="Select character .pkl file",
+                                           filetypes=[("Pickle files", "*.pkl"), ("All files", "*.*")])
+    finally:
+        root.destroy()
+    if not fname:
+        return None
+    try:
+        with open(fname, 'rb') as f:
+            obj = pickle.load(f)
+        print(f"Loaded character <- {fname}")
+        return obj
+    except Exception as e:
+        print("Failed to load character:", e)
+        return None
+
 reset_state()
 running = True
 
@@ -330,6 +394,29 @@ while running:
                 print("Resetting...")
                 reset_state()
                 pygame.display.set_mode((WIDTH, HEIGHT))
+                continue
+            elif event.key == pygame.K_s:
+                # Save current character to next available character_x.pkl
+                # Ensure any in-progress stroke is included
+                if len(current_stroke) > 0:
+                    current_character.add_stroke(current_stroke)
+                    current_stroke = Stroke()
+                save_character(current_character)
+                # continue without changing current recording/playback state
+                continue
+            elif event.key == pygame.K_l:
+                # Load a saved Character via file dialog and start playback
+                loaded = load_character_via_dialog()
+                if loaded is None:
+                    print("No character loaded.")
+                    continue
+                # Replace current_character and prepare for playback
+                current_character = loaded
+                current_stroke = Stroke()
+                recording = False
+                playback_start_time = time.time()
+                recording_start_time = None
+                print("Entering playback of loaded character...")
                 continue
 
     screen.fill((30, 30, 30))
