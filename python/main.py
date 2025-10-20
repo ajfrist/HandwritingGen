@@ -146,7 +146,7 @@ while running:
                 continue
             elif event.key == pygame.K_r:
                 # Reset everything
-                print("Resetting...")
+                print("\nResetting...\n")
                 reset_state()
                 pygame.display.set_mode((WIDTH, HEIGHT))
                 continue
@@ -189,14 +189,20 @@ while running:
                 # store and print results; display for 5 seconds
                 last_identified = results
                 identified_display_until = time.time() + 5.0
-                print("Identification results:")
+                print("Compiled Identification results:")
                 for item in results:
                     # item expected as (char, confidence, sub_char)
                     try:
                         ch, conf, sub = item
                         print(f"  {ch}: {conf:.2f}")
-                    except Exception:
+                    except Exception as e:
                         print("  ", item)
+                        raise e
+                for item in results:
+                    ch, conf, sub = item
+                    if (conf > 0.7):
+                        print(f"Character '{ch}' identified with confidence {conf:.2f}")
+                print()
 
                 # comment if want to compare
                 # -----
@@ -216,6 +222,7 @@ while running:
                     visualize_comparison(current_character, best_key, s_key='L')
                 except Exception as e:
                     print("Comparison visualization failed:", e)
+                    raise e;
 
                 continue
 
@@ -243,6 +250,7 @@ while running:
             if len(current_stroke) > 0:
                 current_character.add_stroke(current_stroke)
                 current_stroke = Stroke()
+                print("Stroke ended")
 
         # Draw strokes live
         if len(current_stroke) > 1:

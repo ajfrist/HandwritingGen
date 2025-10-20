@@ -3,7 +3,22 @@ import numpy as np
 from data_structures import Character, normalize_positions, trim_leading_time, REFERENCE_CHARACTERS
 from interpolation import cubic_spline_interpolation
 
-def adjust_time_delay(times, array, ref_array, ref_times=None):
+# Global cache for adjusted splines, temparary solution to share up-to-date data with visualization 
+all_character_adjusted_splines = {}
+
+def get_current_adjusted_splines():
+    return all_character_adjusted_splines
+
+def get_average_time_step(times):
+    """Estimate average time step from a time array."""
+    times = np.asarray(times, dtype=float)
+    diffs = np.diff(np.sort(times))
+    diffs = diffs[diffs > 0]
+    if diffs.size == 0:
+        return 0.01
+    return float(np.median(diffs))
+
+def adjust_time_delay(times, array, ref_times, ref_array):
     """
     Align `array` to `ref_array` by finding the time delay that maximizes their
     cross-correlation and returning a new times array shifted by that delay.
@@ -135,13 +150,58 @@ def adjust_time_delay(times, array, ref_array, ref_times=None):
     times_shifted = times - lag_seconds
     return times_shifted
 
+def clean_arrays(t1, v1, t2, v2):
+    """Remove any duplicate values and ensure strictly increasing time arrays."""
+    def clean_single(t, v):
+        sort_idx = np.argsort(t)
+        t_s = t[sort_idx]
+        v_s = v[sort_idx]
+        unique_t, unique_idx = np.unique(t_s, return_index=True)
+        t_c = unique_t
+        v_c = v_s[unique_idx]
+        return t_c, v_c
+
+    t1_c, v1_c = clean_single(t1, v1)
+    t2_c, v2_c = clean_single(t2, v2)
+    return t1_c, v1_c, t2_c, v2_c
+
+def add_padding(arr1_t, arr1_v, arr2_t, arr2_v):
+    """Add padding points to the beginning and end of both arrays
+    so they cover the same time span.
+    Time locations are kept the same; the first/last values are extended
+    as needed to match the length on the end of the other array.
+    Assumes arrays of time are ordered.
+    """
+
+    # get and compare values of time betweeen arrays
+    # if value is smaller (arary is shorter)
+    #     array1t add datapoint with valuet+1, valuey
+    #     array1v
+
+    ave1 = get_average_time_step(arr1_t)
+    ave2 = get_average_time_step(arr2_t)
+    while arr1_t[-1] < arr2_t[-1]:
+        arr1_t = np.append(arr1_t, arr1_t[-1]+ave1)
+        arr1_v = np.append(arr1_v, arr1_v[-1])
+    while arr2_t[-1] < arr1_t[-1]:
+        arr2_t = np.append(arr2_t, arr2_t[-1]+ave2)
+        arr2_v = np.append(arr2_v, arr2_v[-1])
+    while arr1_t[0] > arr2_t[0]:
+        arr1_t = np.insert(arr1_t, 0, arr1_t[0]-ave1)
+        arr1_v = np.insert(arr1_v, 0, arr1_v[0])
+    while arr2_t[0] > arr1_t[0]:
+        arr2_t = np.insert(arr2_t, 0, arr2_t[0]-ave2)
+        arr2_v = np.insert(arr2_v, 0, arr2_v[0])
+
+    return arr1_t, arr1_v, arr2_t, arr2_v
+
 def normalize_error(error):
     """Returns value scaled from 0 to 1 based on equation x/(x+1), 
     where original error is a positive real value.
     More sensitive to small errors ~0, saturates towards 1 for large errors."""
     return (9 + (error-0.9) / (error-0.9+1)) / 10
 
-def character_error(character, reference_character):
+def character_error(character, reference_character, ref_ascii, orig_char):
     """
     Compare character to reference_character by computing mean squared error
     of x(t) and y(t) separately. Uses a cubic spline built from the reference
@@ -165,7 +225,12 @@ def character_error(character, reference_character):
     ref_y = np.asarray([p.y_norm for p in ref_pts], dtype=float)
 
     # align char_times to ref_times to account for possible time offset
-    char_times = adjust_time_delay(char_times, char_x, ref_x, ref_times)
+    char_times_x = adjust_time_delay(char_times, char_x, ref_times, ref_x)
+    char_times_y = adjust_time_delay(char_times, char_y, ref_times, ref_y)
+    char_times_x, char_x, ref_times, ref_x = clean_arrays(char_times_x, char_x, ref_times, ref_x)
+    char_times_y, char_y, ref_times, ref_y = clean_arrays(char_times_y, char_y, ref_times, ref_y)
+    char_times_x, char_x, ref_times_x, ref_x = add_padding(char_times_x, char_x, ref_times, ref_x)
+    char_times_y, char_y, ref_times_y, ref_y = add_padding(char_times_y, char_y, ref_times, ref_y)
 
     # helper to build a callable interpolant for reference data
     def build_interpolant(t, v):
@@ -188,30 +253,41 @@ def character_error(character, reference_character):
             return cubic_spline_interpolation(t_s, v_s)
         except Exception:
             # fallback to numpy interp (clamped extrapolation)
+            print('fall back to numpy interp')
             return lambda tt: np.interp(np.asarray(tt, dtype=float), t_s, v_s, left=v_s[0], right=v_s[-1])
 
-    sx = build_interpolant(ref_times, ref_x)
-    sy = build_interpolant(ref_times, ref_y)
+    sx = build_interpolant(char_times_x, char_x)
+    sy = build_interpolant(char_times_y, char_y)
     if sx is None or sy is None:
         return (float('inf'), float('inf'))
+    
+    # store adjusted splines for visualization
+    if all_character_adjusted_splines.get(orig_char.__hash__(), None) is None:
+        all_character_adjusted_splines[orig_char.__hash__()] = {}
+    all_character_adjusted_splines[orig_char.__hash__()][ref_ascii] = {
+        'x_values': char_x,
+        'y_values': char_y,
+        'x_times': char_times_x,
+        'y_times': char_times_y
+    }
 
     # evaluate interpolants at character timestamps
     try:
-        pred_x = sx(char_times)
+        pred_x = sx(ref_times_x)
     except Exception:
         pred_x = np.asarray([sx(t) for t in char_times], dtype=float)
     try:
-        pred_y = sy(char_times)
+        pred_y = sy(ref_times_y)
     except Exception:
         pred_y = np.asarray([sy(t) for t in char_times], dtype=float)
 
     # Mean squared error
-    mse_x = float(np.mean((char_x - pred_x) ** 2))
-    mse_y = float(np.mean((char_y - pred_y) ** 2))
+    mse_x = float(np.mean((ref_x - pred_x) ** 2))
+    mse_y = float(np.mean((ref_y - pred_y) ** 2))
 
     return (mse_x, mse_y)
 
-def identify_character(character: Character):
+def identify_character(character: Character, display=True):
     """
     Analyze the character and attempt to identify it.
     Returns a dictionary with key for each character and a confidence score (0-1).
@@ -219,13 +295,15 @@ def identify_character(character: Character):
     d = {}
     for ascii_char, ref_char in REFERENCE_CHARACTERS.items():
         x_error, y_error = character_error(trim_leading_time(normalize_positions(character)), 
-                                           trim_leading_time(normalize_positions(ref_char)))
+                                           trim_leading_time(normalize_positions(ref_char)), ascii_char, character)
         average_error = (x_error + y_error) / 2
         confidence = 1 - normalize_error(average_error)
         d[ascii_char] = confidence
-    print("---- Character Results: ---\n")
-    for k in sorted(d.keys()):
-        print(f"  '{k}': {d[k]:.8f}")
+    if display:
+        print("---- Character Results: ---")
+        for k in sorted(d.keys()):
+            print(f"  '{k}': {d[k]:.8f}")
+        print("--------------------------\n")
     return d
 
 def identify_screen_characters(screen_character: Character):
@@ -250,6 +328,7 @@ def identify_screen_characters(screen_character: Character):
     identified = []
     # Group up to three consecutive stroke combinations into one character for identification
     for i in range(0, len(screen_character.strokes)):
+        print("Analyzing indivisual stroke index: ", i)
         sub_char = create_sub_character(screen_character, [i])
         result = identify_character(sub_char)
         if result:
@@ -260,6 +339,7 @@ def identify_screen_characters(screen_character: Character):
                 print(f"Identified '{best_match[0]}' with confidence {best_match[1]:.2f}")
 
     for i in range(0, len(screen_character.strokes)-1):
+        print("Analyzing two-stroke combination indices: ", i, i+1)
         if i+1 >= len(screen_character.strokes):
             break
         sub_char = create_sub_character(screen_character, [i, i+1])
@@ -271,6 +351,7 @@ def identify_screen_characters(screen_character: Character):
                 print(f"Identified '{best_match[0]}' with confidence {best_match[1]:.2f}")
     
     for i in range(0, len(screen_character.strokes)-2):
+        print("Analyzing three-stroke combination indices: ", i, i+1, i+2)
         if i+2 >= len(screen_character.strokes):
             break
         sub_char = create_sub_character(screen_character, [i, i+1, i+2])

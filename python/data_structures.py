@@ -2,7 +2,7 @@ import os
 import glob
 import pickle
 import string
-
+import numpy as np
 
 # ------------------------
 # Data classes
@@ -58,6 +58,7 @@ class Character:
         # store original ranges used for normalization: (min, max) or None
         self.x_range = None
         self.y_range = None
+        self.ascii_char = None  # optional: store which character this represents
 
     def add_stroke(self, stroke):
         if len(stroke) > 0:  # Only add non-empty strokes
@@ -72,6 +73,14 @@ class Character:
     def __str__(self):
         return f"Character with {len(self.strokes)} strokes\n" + \
                 f"{self.x_range}, {self.y_range}"
+    
+    def __repr__(self):
+        return f"Character({self.__hash__()})"
+    
+    def __hash__(self):
+        self.all_points()
+        l = [p.x_norm * p.y_norm / max(p.timestamp, 0.3) for p in self.all_points()]
+        return int(float(np.mean(l))*2e32)
     
     def all_points(self):
         """Iterator over all points in all strokes"""
@@ -268,6 +277,7 @@ def load_reference_characters(ref_dir=None):
         try:
             with open(path, "rb") as f:
                 obj = pickle.load(f)
+                print(obj.__hash__())
             # basic sanity: has strokes attribute
             if not hasattr(obj, "strokes"):
                 print(f"File {os.path.basename(path)} did not contain a Character-like object, skipping.")

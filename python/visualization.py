@@ -1,7 +1,7 @@
 import numpy as np
 
 from interpolation import newton_interpolation, cubic_spline_interpolation
-from character_matching import adjust_time_delay
+from character_matching import adjust_time_delay, get_current_adjusted_splines
 from data_structures import normalize_positions, trim_leading_time, REFERENCE_CHARACTERS
 
 try:
@@ -413,187 +413,7 @@ def visualize_comparison(character, best_key, s_key='s'):
       - current aligned to 's' reference
     All reference traces are hidden by default (legendonly) so user can toggle visibility.
     """
-    if not character or len(character) == 0:
-        print("No current character to compare.")
-        return
-
-    if go is None or px is None or plotly_offline_plot is None:
-        print("Plotly not available.")
-        return
-
-    # Normalize & trim current
-    cur = normalize_positions(trim_leading_time(character))
-    cur_pts = list(cur.all_points())
-    if not cur_pts:
-        print("No points in current character.")
-        return
-    cur_times = np.array([p.timestamp for p in cur_pts], dtype=float)
-    cur_x = np.array([p.x_norm for p in cur_pts], dtype=float)
-    cur_y = np.array([p.y_norm for p in cur_pts], dtype=float)
-    # build flat xy/z with None separators for strokes
-    cur_xs = []
-    cur_ys = []
-    cur_zs = []
-    for stroke in cur:
-        for p in stroke:
-            cur_xs.append(p.x_norm)
-            cur_ys.append(p.y_norm)
-            cur_zs.append(p.timestamp)
-        cur_xs.append(None); cur_ys.append(None); cur_zs.append(None)
-
-    # helper to prepare reference dense curves
-    def prepare_ref(key):
-        ref = REFERENCE_CHARACTERS.get(key)
-        if ref is None:
-            return None
-        refn = normalize_positions(trim_leading_time(ref))
-        ref_pts = list(refn.all_points())
-        if not ref_pts:
-            return None
-        rt = np.array([p.timestamp for p in ref_pts], dtype=float)
-        rx = np.array([p.x_norm for p in ref_pts], dtype=float)
-        ry = np.array([p.y_norm for p in ref_pts], dtype=float)
-        # dense parameter t_ref
-        if rt.size == 1:
-            t_ref = np.linspace(0.0, rt[0] or 1.0, 300)
-            xr = np.full_like(t_ref, rx[0])
-            yr = np.full_like(t_ref, ry[0])
-        else:
-            t_ref = np.linspace(0.0, rt.max(), 300)
-            try:
-                fx = cubic_spline_interpolation(rt, rx)
-                fy = cubic_spline_interpolation(rt, ry)
-                xr = fx(t_ref)
-                yr = fy(t_ref)
-            except Exception:
-                xr = np.interp(t_ref, rt, rx, left=rx[0], right=rx[-1])
-                yr = np.interp(t_ref, rt, ry, left=ry[0], right=ry[-1])
-
-        # also build flat original lists with separators for 3D plotting
-        xs = []; ys = []; zs = []
-        for stroke in refn:
-            for p in stroke:
-                xs.append(p.x_norm); ys.append(p.y_norm); zs.append(p.timestamp)
-            xs.append(None); ys.append(None); zs.append(None)
-        return dict(rt=rt, rx=rx, ry=ry, t_ref=t_ref, xr=xr, yr=yr, xs=xs, ys=ys, zs=zs)
-
-    best_ref = prepare_ref(best_key) if best_key else None
-    s_ref = prepare_ref(s_key)
-
-    # compute aligned times of current to each reference (based on x-series)
-    def align_current_to_ref(ref):
-        if ref is None:
-            return None, 0.0
-        try:
-            shifted_times = adjust_time_delay(cur_times, cur_x, ref['rx'], ref_times=ref['rt'])
-            # lag = median(original - shifted)
-            lag = float(np.median(cur_times - shifted_times))
-            # Build synced zs for 3D (map each original point to shifted timestamp)
-            synced_zs = []
-            it = iter(shifted_times)
-            for stroke in cur:
-                for _ in stroke:
-                    synced_zs.append(next(it))
-                synced_zs.append(None)
-            return np.asarray(synced_zs, dtype=float), lag
-        except Exception:
-            return None, 0.0
-
-    synced_z_best, lag_best = align_current_to_ref(best_ref)
-    synced_z_s, lag_s = align_current_to_ref(s_ref)
-
-    # Build 3D traces (5 traces)
-    traces3d = []
-    # current original
-    traces3d.append(go.Scatter3d(x=cur_xs, y=cur_ys, z=cur_zs,
-                                 mode='lines+markers',
-                                 line=dict(color='red', width=4),
-                                 marker=dict(size=3, color='red'),
-                                 name='current (orig)', visible=True))
-    # best ref original
-    if best_ref:
-        traces3d.append(go.Scatter3d(x=best_ref['xs'], y=best_ref['ys'], z=best_ref['zs'],
-                                     mode='lines', line=dict(color='lightgray', width=2),
-                                     name=f"ref {best_key} (orig)", visible='legendonly', hoverinfo='skip'))
-    else:
-        traces3d.append(go.Scatter3d(x=[], y=[], z=[], mode='lines', name="ref (missing)", visible='legendonly'))
-    # s ref original
-    if s_ref:
-        traces3d.append(go.Scatter3d(x=s_ref['xs'], y=s_ref['ys'], z=s_ref['zs'],
-                                     mode='lines', line=dict(color='lightgray', width=2),
-                                     name=f"ref {s_key} (orig)", visible='legendonly', hoverinfo='skip'))
-    else:
-        traces3d.append(go.Scatter3d(x=[], y=[], z=[], mode='lines', name="s ref (missing)", visible='legendonly'))
-    # current aligned to best
-    if synced_z_best is not None:
-        traces3d.append(go.Scatter3d(x=cur_xs, y=cur_ys, z=synced_z_best,
-                                     mode='lines', line=dict(color='blue', width=2, dash='dash'),
-                                     name=f"current aligned -> {best_key}", visible='legendonly'))
-    else:
-        traces3d.append(go.Scatter3d(x=[], y=[], z=[], mode='lines', name="aligned best (missing)", visible='legendonly'))
-    # current aligned to s
-    if synced_z_s is not None:
-        traces3d.append(go.Scatter3d(x=cur_xs, y=cur_ys, z=synced_z_s,
-                                     mode='lines', line=dict(color='green', width=2, dash='dash'),
-                                     name=f"current aligned -> {s_key}", visible='legendonly'))
-    else:
-        traces3d.append(go.Scatter3d(x=[], y=[], z=[], mode='lines', name="aligned s (missing)", visible='legendonly'))
-
-    # determine global ranges
-    all_x_vals = [v for v in cur_xs if v is not None]
-    all_y_vals = [v for v in cur_ys if v is not None]
-    all_t_vals = [v for v in cur_zs if v is not None]
-    if best_ref:
-        all_x_vals.extend([v for v in best_ref['xs'] if v is not None])
-        all_y_vals.extend([v for v in best_ref['ys'] if v is not None])
-        all_t_vals.extend([v for v in best_ref['zs'] if v is not None])
-    if s_ref:
-        all_x_vals.extend([v for v in s_ref['xs'] if v is not None])
-        all_y_vals.extend([v for v in s_ref['ys'] if v is not None])
-        all_t_vals.extend([v for v in s_ref['zs'] if v is not None])
-    # include synced times
-    if synced_z_best is not None:
-        all_t_vals.extend([v for v in synced_z_best if v is not None])
-    if synced_z_s is not None:
-        all_t_vals.extend([v for v in synced_z_s if v is not None])
-
-    def pad(a_min, a_max):
-        span = a_max - a_min
-        if span == 0:
-            p = 0.05
-        else:
-            p = span * 0.05
-        return a_min - p, a_max + p
-
-    if all_x_vals and all_y_vals and all_t_vals:
-        xmin, xmax = min(all_x_vals), max(all_x_vals)
-        ymin, ymax = min(all_y_vals), max(all_y_vals)
-        tmin, tmax = min(all_t_vals), max(all_t_vals)
-    else:
-        xmin, xmax, ymin, ymax, tmin, tmax = 0.0, 1.0, 0.0, 1.0, 0.0, 1.0
-
-    xr = pad(xmin, xmax)
-    yr = pad(ymin, ymax)
-    tr = pad(tmin, tmax)
-
-    layout3d = go.Layout(title=f"3D comparison (current + {best_key} + {s_key})",
-                         scene=dict(xaxis=dict(title="X", range=[xr[0], xr[1]]),
-                                    yaxis=dict(title="Y", range=[yr[0], yr[1]]),
-                                    zaxis=dict(title="Time", range=[max(0, tr[0]), tr[1]])),
-                         legend=dict(itemsizing='constant'))
-
-    fig3d = go.Figure(data=traces3d, layout=layout3d)
-    try:
-        plotly_offline_plot(fig3d, auto_open=True, filename='comparison_3d.html')
-    except Exception:
-        try:
-            fig3d.show(renderer='browser')
-        except Exception:
-            print("Unable to open 3D comparison")
-    # Prepare parametric plots (X(t), Y(t)) using the already-computed
-    # cur_times, cur_x, cur_y arrays above. Ensure they are sorted by time
-    # before building interpolants so no NameError / undefined-variable
-    # issues occur (previous code referenced undefined all_times/all_x/all_y).
+    # Ensure in order
     try:
         order = np.argsort(cur_times)
         cur_times = np.asarray(cur_times, dtype=float)[order]
@@ -611,120 +431,103 @@ def visualize_comparison(character, best_key, s_key='s'):
             cur_times = cur_times[order]
             cur_x = cur_x[order]
             cur_y = cur_y[order]
+    # cur_times_sorted = np.array(sorted(cur_times))
+    # t_min_cur, t_max_cur = cur_times_sorted.min(), cur_times_sorted.max()
+    # t_smooth = np.linspace(t_min_cur, t_max_cur, 500)
 
-    # dense time grid for plotting current interpolants
-    if cur_times.size > 1:
-        t_min_cur, t_max_cur = cur_times.min(), cur_times.max()
-        t_smooth = np.linspace(t_min_cur, t_max_cur, 500)
-    else:
-        t_smooth = np.linspace(0.0, 1.0, 500)
+    # Fetch reference character datapoints for graphing
+    refn = normalize_positions(trim_leading_time(REFERENCE_CHARACTERS.get(best_key)))
+    ref_pts = list(refn.all_points())
+    rt_b = np.array([p.timestamp for p in ref_pts], dtype=float)
+    rx_b = np.array([p.x_norm for p in ref_pts], dtype=float)
+    ry_b = np.array([p.y_norm for p in ref_pts], dtype=float)
+    refn = normalize_positions(trim_leading_time(REFERENCE_CHARACTERS.get(s_key)))
+    ref_pts = list(refn.all_points())
+    rt_s = np.array([p.timestamp for p in ref_pts], dtype=float)
+    rx_s = np.array([p.x_norm for p in ref_pts], dtype=float)
+    ry_s = np.array([p.y_norm for p in ref_pts], dtype=float)
 
-    # optional Newton (not required later) left out; build spline/interpolants below
-    # --- Parametric X(t) and Y(t): build 5-trace plots each ---
-    # build dense time grid for current
-    cur_times_sorted = np.array(sorted(cur_times))
-    if cur_times_sorted.size > 1:
-        t_min_cur, t_max_cur = cur_times_sorted.min(), cur_times_sorted.max()
-        t_smooth = np.linspace(t_min_cur, t_max_cur, 500)
-    else:
-        t_smooth = np.linspace(0.0, 1.0, 500)
+    # Create data for live calculated adjustments
+    character_splines = get_current_adjusted_splines()
+    x_values_best = character_splines[character.__hash__()][best_key]['x_values']
+    y_values_best = character_splines[character.__hash__()][best_key]['y_values']
+    x_times_best = character_splines[character.__hash__()][best_key]['x_times']
+    y_times_best = character_splines[character.__hash__()][best_key]['y_times']
+    x_values_s = character_splines[character.__hash__()][s_key]['x_values']
+    y_values_s = character_splines[character.__hash__()][s_key]['y_values']
+    x_times_s = character_splines[character.__hash__()][s_key]['x_times']
+    y_times_s = character_splines[character.__hash__()][s_key]['y_times']
 
-    # current interpolants
-    try:
-        fx_cur = cubic_spline_interpolation(cur_times, cur_x)
-        fy_cur = cubic_spline_interpolation(cur_times, cur_y)
-    except Exception:
-        # fallback to simple numpy interp wrappers
-        fx_cur = lambda tt: np.interp(np.asarray(tt, dtype=float), cur_times, cur_x, left=cur_x[0], right=cur_x[-1])
-        fy_cur = lambda tt: np.interp(np.asarray(tt, dtype=float), cur_times, cur_y, left=cur_y[0], right=cur_y[-1])
-
-    # prepare reference dense curves (if present)
-    def dense_ref(ref):
-        if ref is None:
-            return None
-        t_ref = ref['t_ref']
-        xr = ref['xr']
-        yr = ref['yr']
-        return dict(t_ref=t_ref, xr=xr, yr=yr)
-
-    best_dense = dense_ref(best_ref)
-    s_dense = dense_ref(s_ref)
-
-    # compute lags (median) for shifting current to refs
-    def compute_lag_to_ref(ref):
-        if ref is None:
-            return 0.0
-        # align current (cur_times, cur_x) to reference sample points (ref['rt'], ref['rx'])
-        try:
-            shifted = adjust_time_delay(cur_times, cur_x, ref['rx'], ref_times=ref['rt'])
-            lag = float(np.median(cur_times - shifted))
-            return lag
-        except Exception:
-            return 0.0
-
-    lag_best = compute_lag_to_ref(best_ref)
-    lag_s = compute_lag_to_ref(s_ref)
 
     # build traces for X(t)
     traces_x = []
     # current (spline)
-    traces_x.append(go.Scatter(x=t_smooth, y=fx_cur(t_smooth),
+    traces_x.append(go.Scatter(x=cur_times, y=cur_x,
                                mode='lines', line=dict(color='red', width=3),
                                name='current (spline)', visible=True))
     # best ref orig
-    if best_dense:
-        traces_x.append(go.Scatter(x=best_dense['t_ref'], y=best_dense['xr'],
-                                   mode='lines', line=dict(color='lightgray', width=2),
-                                   name=f"ref {best_key} (orig)", visible='legendonly'))
-    else:
-        traces_x.append(go.Scatter(x=[], y=[], mode='lines', name=f"ref {best_key} (missing)", visible='legendonly'))
+    traces_x.append(go.Scatter(x=rt_b, y=rx_b,
+                                mode='lines', line=dict(color='lightgray', width=2),
+                                name=f"ref {best_key} (orig)", visible='legendonly'))
     # s ref orig
-    if s_dense:
-        traces_x.append(go.Scatter(x=s_dense['t_ref'], y=s_dense['xr'],
-                                   mode='lines', line=dict(color='lightgray', width=2),
-                                   name=f"ref {s_key} (orig)", visible='legendonly'))
-    else:
-        traces_x.append(go.Scatter(x=[], y=[], mode='lines', name=f"ref {s_key} (missing)", visible='legendonly'))
+    traces_x.append(go.Scatter(x=rt_s, y=rx_s,
+                                mode='lines', line=dict(color='lightgray', width=2),
+                                name=f"ref {s_key} (orig)", visible='legendonly'))
     # current aligned -> best (shifted by lag_best)
-    traces_x.append(go.Scatter(x=(t_smooth - lag_best), y=fx_cur(t_smooth),
+    traces_x.append(go.Scatter(x=x_times_best, y=x_values_best,
                                mode='lines', line=dict(color='blue', width=2, dash='dash'),
                                name=f"current aligned -> {best_key}", visible='legendonly'))
     # current aligned -> s
-    traces_x.append(go.Scatter(x=(t_smooth - lag_s), y=fx_cur(t_smooth),
+    traces_x.append(go.Scatter(x=x_times_s, y=x_values_s,
                                mode='lines', line=dict(color='green', width=2, dash='dash'),
                                name=f"current aligned -> {s_key}", visible='legendonly'))
 
     # build traces for Y(t)
     traces_y = []
-    traces_y.append(go.Scatter(x=t_smooth, y=fy_cur(t_smooth),
+    traces_y.append(go.Scatter(x=cur_times, y=cur_y,
                                mode='lines', line=dict(color='red', width=3),
                                name='current (spline)', visible=True))
-    if best_dense:
-        traces_y.append(go.Scatter(x=best_dense['t_ref'], y=best_dense['yr'],
-                                   mode='lines', line=dict(color='lightgray', width=2),
-                                   name=f"ref {best_key} (orig)", visible='legendonly'))
-    else:
-        traces_y.append(go.Scatter(x=[], y=[], mode='lines', name=f"ref {best_key} (missing)", visible='legendonly'))
-    if s_dense:
-        traces_y.append(go.Scatter(x=s_dense['t_ref'], y=s_dense['yr'],
-                                   mode='lines', line=dict(color='lightgray', width=2),
-                                   name=f"ref {s_key} (orig)", visible='legendonly'))
-    else:
-        traces_y.append(go.Scatter(x=[], y=[], mode='lines', name=f"ref {s_key} (missing)", visible='legendonly'))
-
-    traces_y.append(go.Scatter(x=(t_smooth - lag_best), y=fy_cur(t_smooth),
+    traces_y.append(go.Scatter(x=rt_b, y=ry_b,
+                               mode='lines', line=dict(color='lightgray', width=2),
+                               name=f"ref {best_key} (orig)", visible='legendonly'))
+    traces_y.append(go.Scatter(x=rt_s, y=ry_s,
+                                mode='lines', line=dict(color='lightgray', width=2),
+                                name=f"ref {s_key} (orig)", visible='legendonly'))
+    traces_y.append(go.Scatter(x=y_times_best, y=y_values_best,
                                mode='lines', line=dict(color='blue', width=2, dash='dash'),
-                               name=f"current aligned -> {best_key}", visible='legendonly'))
-    traces_y.append(go.Scatter(x=(t_smooth - lag_s), y=fy_cur(t_smooth),
+                               name=f"better current aligned -> {best_key}", visible='legendonly'))
+    traces_y.append(go.Scatter(x=y_times_s, y=y_values_s,
                                mode='lines', line=dict(color='green', width=2, dash='dash'),
-                               name=f"current aligned -> {s_key}", visible='legendonly'))
+                               name=f"better current aligned -> {s_key}", visible='legendonly'))
+
+    # set graphing padding
+    def padding_amount(a_min, a_max):
+        span = a_max - a_min
+        if span == 0:
+            p = 0.05
+        else:
+            p = span * 0.05
+        return a_min - p, a_max + p
+    xmin = min([cur_x.min(), rx_b.min(), rx_s.min(), x_values_best.min(), x_values_s.min()])
+    xmax = max([cur_x.max(), rx_b.max(), rx_s.max(), x_values_best.max(), x_values_s.max()])
+    ymin = min([cur_y.min(), ry_b.min(), ry_s.min(), y_values_best.min(), y_values_s.min()])
+    ymax = max([cur_y.max(), ry_b.max(), ry_s.max(), y_values_best.max(), y_values_s.max()])
+    txmin = min([cur_times.min(), rt_b.min(), rt_s.min(), x_times_best.min(), x_times_s.min()])
+    txmax = max([cur_times.max(), rt_b.max(), rt_s.max(), x_times_best.max(), x_times_s.max()])
+    tymin = min([cur_times.min(), rt_b.min(), rt_s.min(), y_times_best.min(), y_times_s.min()])
+    tymax = max([cur_times.max(), rt_b.max(), rt_s.max(), y_times_best.max(), y_times_s.max()])
+
+    xr = padding_amount(xmin, xmax)
+    yr = padding_amount(ymin, ymax)
+    txr = padding_amount(txmin, txmax)
+    tyr = padding_amount(tymin, tymax)
 
     # set axis ranges using previously computed tr, xr, yr (from 3D section)
     layout_x = go.Layout(title=f"X(t) comparison (current + {best_key} + {s_key})",
-                         xaxis=dict(title="Time (s)", range=[max(0, tr[0]), tr[1]]),
+                         xaxis=dict(title="Time (s)", range=[max(0, txr[0]), txr[1]]),
                          yaxis=dict(title="X (normalized)", range=[xr[0], xr[1]]))
     layout_y = go.Layout(title=f"Y(t) comparison (current + {best_key} + {s_key})",
-                         xaxis=dict(title="Time (s)", range=[max(0, tr[0]), tr[1]]),
+                         xaxis=dict(title="Time (s)", range=[max(0, tyr[0]), tyr[1]]),
                          yaxis=dict(title="Y (normalized)", range=[yr[0], yr[1]]))
 
     fig_x = go.Figure(data=traces_x, layout=layout_x)
