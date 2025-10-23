@@ -125,12 +125,8 @@ def adjust_time_delay(times, array, ref_times, ref_array):
 
     # compute full cross-correlation (normalized signals)
     corr = np.correlate(grid_a_z, grid_r_z, mode='full')
-    idx_max = int(np.argmax(corr))
 
-    # lags run from -(len(grid_r)-1) .. (len(grid_a)-1)
-    lag_samples = idx_max - (len(grid_r) - 1)
-
-    # Parabolic interpolation around the peak gives a fractional-sample
+    # Parabolic interpolation around a peak gives a fractional-sample
     # estimate of the true peak (better than integer-sample argmax).
     def parabolic_peak(c, k):
         if k <= 0 or k >= len(c) - 1:
@@ -142,12 +138,49 @@ def adjust_time_delay(times, array, ref_times, ref_array):
         delta = 0.5 * (y0 - y2) / denom
         return float(k) + delta
 
-    idx_frac = parabolic_peak(corr, idx_max)
-    lag_frac_samples = idx_frac - (len(grid_r) - 1)
-    lag_seconds = float(lag_frac_samples * dt)
+    # Convert correlation indices to lag seconds for all possible positions
+    num_r = len(grid_r)
+    num_a = len(grid_a)
+    # lags run from -(num_r-1) .. (num_a-1)
+    lag_indices = np.arange(-(num_r - 1), (num_a))
+    lag_seconds_all = lag_indices * dt
+
+    # Determine allowable maximum shift: 75% of reference time span
+    ref_span = float(t_r.max() - t_r.min()) if t_r.size > 1 else 0.0
+    max_allowed_shift = 0.75 * ref_span
+
+    # If reference span is zero (degenerate), allow only very small shifts (one dt)
+    if max_allowed_shift <= 0:
+        max_allowed_shift = dt
+
+    # Consider peaks in descending order of correlation magnitude, pick first
+    # peak whose lag is within allowed bounds. If none found, fall back to no shift.
+    corr_indices_sorted = np.argsort(corr)[::-1]  # indices into corr sorted by value desc
+    chosen_idx_frac = None
+    chosen_lag_seconds = None
+
+    for idx in corr_indices_sorted:
+        # integer lag corresponding to this correlation index
+        lag_samples = idx - (num_r - 1)
+        lag_sec = float(lag_samples * dt)
+        # Accept if lag does not move the entire array more than allowed
+        if abs(lag_sec) <= max_allowed_shift:
+            # refine peak with parabolic interpolation
+            idx_frac = parabolic_peak(corr, int(idx))
+            lag_frac_samples = idx_frac - (num_r - 1)
+            lag_sec_frac = float(lag_frac_samples * dt)
+            # final check on fractional lag
+            if abs(lag_sec_frac) <= max_allowed_shift:
+                chosen_idx_frac = idx_frac
+                chosen_lag_seconds = lag_sec_frac
+                break
+
+    if chosen_idx_frac is None:
+        # No acceptable peak found: do not shift (safer than aligning totally off)
+        return times
 
     # shift original times so array would be aligned with ref_array
-    times_shifted = times - lag_seconds
+    times_shifted = times - float(chosen_lag_seconds)
     return times_shifted
 
 def clean_arrays(t1, v1, t2, v2):
