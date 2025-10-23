@@ -291,5 +291,54 @@ def load_reference_characters(ref_dir=None):
             print(f"Failed to load reference {os.path.basename(path)}: {e}")
     return d
 
+def load_characters(user="default"):
+    """
+    Load all pickle files in dirpath and return a dict mapping ascii_char -> list of Character objects.
+    Only objects that appear Character-like (have 'strokes') and have a single-character ascii_char are stored.
+    """
+    # dirpath = None if user == "default" else f"user_data/{user}"
+    # if dirpath is None:
+    dirpath = os.path.join(os.path.dirname(__file__), "user_data/"+user)
+    dirpath = os.path.abspath(dirpath)
+
+    d = {}
+    if not os.path.isdir(dirpath):
+        print(f"Directory not found: {dirpath}")
+        return d
+
+    pattern = os.path.join(dirpath, "*.pkl*")
+    files = sorted(glob.glob(pattern))
+    if not files:
+        print(f"No pickle files found in {dirpath}")
+        return d
+
+    for path in files:
+        name = os.path.basename(path)
+        # remove possible trailing .tmp_rename
+        if name.endswith(".tmp_rename"):
+            name = name[:-len(".tmp_rename")]
+        try:
+            with open(path, "rb") as f:
+                obj = pickle.load(f)
+        except Exception as e:
+            print(f"Failed to load {name}: {e}")
+            continue
+
+        # Basic check for Character-like object
+        if not hasattr(obj, "strokes"):
+            print(f"File {name} did not contain a Character-like object, skipping.")
+            continue
+
+        key = getattr(obj, "ascii_char", None)
+        # require a single-character string key
+        if not isinstance(key, str) or len(key) != 1:
+            print(f"Object in {name} has invalid or missing ascii_char '{key}', skipping.")
+            continue
+
+        d.setdefault(key, []).append(obj)
+        print(f"Loaded character for '{key}' from {name}")
+
+    return d
+
 # Populate global reference mapping (available to rest of script)
 REFERENCE_CHARACTERS = load_reference_characters()

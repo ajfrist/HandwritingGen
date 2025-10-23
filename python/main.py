@@ -13,8 +13,8 @@ except Exception:
 
 from data_structures import TouchPoint, Stroke, Character;
 from visualization import visualize_strokes, visualize_parametric, visualize_comparison
-from character_matching import identify_character, identify_screen_characters, REFERENCE_CHARACTERS
-from character_matching import normalize_positions, trim_leading_time
+from character_matching import identify_character, identify_screen_characters, normalize_positions, trim_leading_time
+from character_synthesis import generate_sentence_character, reset_loaded_user_splines
 
 
 # ------------------------
@@ -63,9 +63,33 @@ def next_character_filename(base_dir=None):
         i += 1
     return os.path.join(base_dir, f"character_{i}.pkl")
 
-def save_character(character, path=None):
+def save_character(character, user="default", path=None):
     """Pickle the character to disk; chooses next name if path is None."""
-    if path is None:
+    if user != "default":
+        user_dir = os.path.join(os.getcwd(), "python/user_data", user)
+        os.makedirs(user_dir, exist_ok=True)
+        char_letter = input("Enter character you are saving: ")
+        character.ascii_char = char_letter
+        if char_letter.isupper():
+            char_letter = char_letter.lower() + 'c'
+            pattern = os.path.join(user_dir, f"character_{char_letter}*.pkl")
+        else:
+            pattern = os.path.join(user_dir, f"character_{char_letter}[0-9]*.pkl")
+        
+        existing = glob.glob(pattern)
+        nums = []
+        for p in existing:
+            name = os.path.basename(p)
+            try:
+                n = int(name.split('_')[1].split('.')[0][-1])
+                nums.append(n)
+            except Exception:
+                continue
+        i = 0
+        while i in nums:
+            i += 1
+        path = os.path.join(user_dir, f"character_{char_letter}{i}.pkl")
+    elif path is None:
         path = next_character_filename()
     try:
         with open(path, 'wb') as f:
@@ -99,6 +123,52 @@ def load_character_via_dialog(initial_dir=None):
     except Exception as e:
         print("Failed to load character:", e)
         return None
+
+# DEBUG FUNCTION - UPDATE PICKLED REFERENCE CHARACTERS DATA
+def update_reference_characters_ascii():
+    """Load every valid pkl file in python/character_references directory,
+    update ascii_char if missing based on filename, and resave."""
+    ref_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "character_references")
+    pkl_files = glob.glob(os.path.join(ref_dir, "character_*.pkl"))
+    
+    print(f"Found {len(pkl_files)} reference character files")
+    for pkl_file in pkl_files:
+        try:
+            # Extract character from filename (character_X.pkl -> X)
+            filename = os.path.basename(pkl_file)
+            char_match = filename.split('_')[1][0]  # Get first char after character_
+            char_match = char_match.upper() if filename.split('_')[1][1]=='c'else char_match
+            
+            # Load the character
+            with open(pkl_file, 'rb') as f:
+                character = pickle.load(f)
+                
+            if not isinstance(character, Character):
+                print(f"Skipping {filename} - not a Character object")
+                continue
+                
+            # Update ascii_char if missing
+            if not hasattr(character, 'ascii_char') or character.ascii_char is None or character.ascii_char != char_match:
+                print(f"Updating ascii_char for {filename} to '{char_match}'")
+                c = Character()
+                c.strokes = character.strokes
+                c.x_range = character.x_range
+                c.y_range = character.y_range
+                c.ascii_char = char_match
+                character = c
+
+                # Resave the file
+                with open(pkl_file, 'wb') as f:
+                    pickle.dump(character, f)
+                print(f"Resaved {filename}")
+            else:
+                print(f"Skipping {filename} - ascii_char already set to '{character.ascii_char}'")
+                
+        except Exception as e:
+            print(f"Error processing {pkl_file}: {e}")
+            continue
+    
+    print("Reference character processing complete")
 
 
 
@@ -156,7 +226,8 @@ while running:
                 if len(current_stroke) > 0:
                     current_character.add_stroke(current_stroke)
                     current_stroke = Stroke()
-                save_character(trim_leading_time(normalize_positions(current_character)))
+                save_character(trim_leading_time(normalize_positions(current_character)), user="test_font")
+                reset_loaded_user_splines()
                 # continue without changing current recording/playback state
                 continue
             elif event.key == pygame.K_l:
@@ -173,6 +244,30 @@ while running:
                 recording_start_time = None
                 print("Entering playback of loaded character...")
                 continue
+            # DEBUG ITEM
+            elif event.key == pygame.K_u:
+                # Update reference characters' ascii_char values
+                print("\nUpdating reference characters...")
+                update_reference_characters_ascii()
+                continue
+                
+            elif event.key == pygame.K_p:
+                # Get text input from user
+                print("Enter text to display: ", end='', flush=True)
+                user_input = input()
+                
+                # Generate the character sequence
+                current_character = generate_sentence_character(user_input, user='test_font')
+                current_stroke = Stroke()
+                print("Generated character sequence:")
+                print([str(p) for p in current_character.all_points()])
+                # Switch to playback mode
+                recording = False
+                playback_start_time = time.time()
+                recording_start_time = None
+                print("Playing back generated text...")
+                continue
+                
             elif event.key == pygame.K_i:
                 # Finalize any in-progress stroke
                 if len(current_stroke) > 0:

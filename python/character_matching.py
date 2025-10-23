@@ -178,8 +178,10 @@ def add_padding(arr1_t, arr1_v, arr2_t, arr2_v):
     #     array1t add datapoint with valuet+1, valuey
     #     array1v
 
-    ave1 = get_average_time_step(arr1_t)
-    ave2 = get_average_time_step(arr2_t)
+    # ave1 = get_average_time_step(arr1_t) # this is creating too large of step descripancy between parametrics
+    # ave2 = get_average_time_step(arr2_t) # this is creating too large of step descripancy between parametrics
+    ave1 = 1 / 60  # assume 60 Hz for reference
+    ave2 = 1 / 60  # assume 60 Hz for reference    
     while arr1_t[-1] < arr2_t[-1]:
         arr1_t = np.append(arr1_t, arr1_t[-1]+ave1)
         arr1_v = np.append(arr1_v, arr1_v[-1])
@@ -192,6 +194,14 @@ def add_padding(arr1_t, arr1_v, arr2_t, arr2_v):
     while arr2_t[0] > arr1_t[0]:
         arr2_t = np.insert(arr2_t, 0, arr2_t[0]-ave2)
         arr2_v = np.insert(arr2_v, 0, arr2_v[0])
+
+    # Add dummy values to ensure arrays are of same length without affecting time span
+    while arr1_t.size < arr2_t.size:
+        arr1_t = np.append(arr1_t, arr1_t[-1])
+        arr1_v = np.append(arr1_v, arr1_v[-1])
+    while arr2_t.size < arr1_t.size:
+        arr2_t = np.append(arr2_t, arr2_t[-1])
+        arr2_v = np.append(arr2_v, arr2_v[-1])
 
     return arr1_t, arr1_v, arr2_t, arr2_v
 
