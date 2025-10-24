@@ -1,6 +1,6 @@
 import numpy as np
 
-from data_structures import Character, normalize_positions, trim_leading_time, REFERENCE_CHARACTERS
+from data_structures import Character, normalize_positions, trim_leading_time, load_reference_characters, REFERENCE_CHARACTERS
 from interpolation import cubic_spline_interpolation
 
 # Global cache for adjusted splines, temparary solution to share up-to-date data with visualization 
@@ -20,8 +20,8 @@ def get_average_time_step(times):
 
 def adjust_time_delay(times, array, ref_times, ref_array):
     """
-    Align `array` to `ref_array` by finding the time delay that maximizes their
-    cross-correlation and returning a new times array shifted by that delay.
+    Align `array` to `ref_array` by finding the time delay and time scaling that maximizes their
+    cross-correlation. Returns a new times array shifted and scaled for optimal alignment.
 
     Parameters:
     - times: 1D array of timestamps for `array`
@@ -31,7 +31,8 @@ def adjust_time_delay(times, array, ref_times, ref_array):
       axis will be created for ref_array spanning the same interval as `times`.
 
     Returns:
-    - times_shifted: numpy array same shape as `times`, shifted to best align with ref_array.
+    - times_shifted: numpy array same shape as `times`, shifted and scaled to best align with ref_array.
+      The time values are scaled by a factor between 0.5 and 2.0 to maximize correlation.
     """
     # Basic validation
     if times is None or array is None or ref_array is None:
@@ -214,7 +215,7 @@ def add_padding(arr1_t, arr1_v, arr2_t, arr2_v):
     # ave1 = get_average_time_step(arr1_t) # this is creating too large of step descripancy between parametrics
     # ave2 = get_average_time_step(arr2_t) # this is creating too large of step descripancy between parametrics
     ave1 = 1 / 60  # assume 60 Hz for reference
-    ave2 = 1 / 60  # assume 60 Hz for reference    
+    ave2 = 1 / 60  # assume 60 Hz for reference
     while arr1_t[-1] < arr2_t[-1]:
         arr1_t = np.append(arr1_t, arr1_t[-1]+ave1)
         arr1_v = np.append(arr1_v, arr1_v[-1])
@@ -252,6 +253,7 @@ def character_error(character, reference_character, ref_ascii, orig_char):
     character's timestamps.
     Returns (x_mse, y_mse).
     """
+
     # gather points
     char_pts = list(character.all_points())
     ref_pts = list(reference_character.all_points())
@@ -303,7 +305,7 @@ def character_error(character, reference_character, ref_ascii, orig_char):
     sy = build_interpolant(char_times_y, char_y)
     if sx is None or sy is None:
         return (float('inf'), float('inf'))
-    
+
     # store adjusted splines for visualization
     if all_character_adjusted_splines.get(orig_char.__hash__(), None) is None:
         all_character_adjusted_splines[orig_char.__hash__()] = {}
@@ -349,7 +351,7 @@ def identify_character(character: Character, display=True):
         print("--------------------------\n")
     return d
 
-def identify_screen_characters(screen_character: Character):
+def identify_screen_characters(screen_character: Character, threshold=0.7):
     """
     Capture the screen, analyze for characters, and attempt to identify them.
     Returns a list of Characters identified with high enough confidence.
@@ -377,7 +379,7 @@ def identify_screen_characters(screen_character: Character):
         if result:
             # For simplicity, assume result is a dict {char: confidence}
             best_match = max(result.items(), key=lambda kv: kv[1])
-            if best_match[1] >= 0.7:  # confidence threshold
+            if best_match[1] >= threshold:  # confidence threshold
                 identified.append((best_match[0], best_match[1], sub_char))
                 print(f"Identified '{best_match[0]}' with confidence {best_match[1]:.2f}")
 
@@ -389,7 +391,7 @@ def identify_screen_characters(screen_character: Character):
         result = identify_character(sub_char)
         if result:
             best_match = max(result.items(), key=lambda kv: kv[1])
-            if best_match[1] >= 0.7:
+            if best_match[1] >= threshold:
                 identified.append((best_match[0], best_match[1], sub_char))
                 print(f"Identified '{best_match[0]}' with confidence {best_match[1]:.2f}")
     
@@ -401,7 +403,7 @@ def identify_screen_characters(screen_character: Character):
         result = identify_character(sub_char)
         if result:
             best_match = max(result.items(), key=lambda kv: kv[1])
-            if best_match[1] >= 0.7:
+            if best_match[1] >= threshold:
                 identified.append((best_match[0], best_match[1], sub_char))
                 print(f"Identified '{best_match[0]}' with confidence {best_match[1]:.2f}")
 

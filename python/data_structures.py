@@ -3,7 +3,7 @@ import glob
 import pickle
 import string
 import numpy as np
-
+import time
 # ------------------------
 # Data classes
 # ------------------------
@@ -155,6 +155,7 @@ def trim_leading_time(character):
     Return a new Character with all timestamps shifted so the first timestamp becomes zero.
     Does not modify the input Character.
     """
+    t1 = time.time()
     # collect all points to find minimal timestamp
     all_pts = list(character.all_points())
     if not all_pts:
@@ -177,6 +178,7 @@ def trim_leading_time(character):
             new_p = TouchPoint(p.x_norm, p.y_norm, p.timestamp - min_t)
             new_stroke.add_point(new_p)
         new_char.add_stroke(new_stroke)
+    print("Trimming time:", time.time() - t1)
     return new_char
 
 def normalize_positions(character):
@@ -186,6 +188,7 @@ def normalize_positions(character):
     .y_range are set to (min, max) for each axis so the normalization can be reversed:
     original = normalized * (max - min) + min
     """
+    t1 = time.time()
     all_pts = list(character.all_points())
     if not all_pts:
         new_char = Character()
@@ -220,6 +223,7 @@ def normalize_positions(character):
             new_p = TouchPoint(nx, ny, p.timestamp)
             new_stroke.add_point(new_p)
         new_char.add_stroke(new_stroke)
+    print("Normalization time:", time.time() - t1)
     return new_char
 
 # ------------------------

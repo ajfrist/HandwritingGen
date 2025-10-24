@@ -243,10 +243,8 @@ async def api_analyze_points(payload: Dict[str, Any]):
     # Build Character from points
     char = points_to_character(points_data)
 
-    # REMOVE
-    input("Incoming identificaition points: "+str(points_data))
     try:
-        results = identify_screen_characters(char)
+        results = identify_screen_characters(char, threshold=0.3)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
