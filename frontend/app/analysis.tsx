@@ -1,6 +1,7 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Picker } from '@react-native-picker/picker';
 
 import { API_URL } from '@/constants/api';
 import React, { useEffect, useRef, useState } from 'react';
@@ -26,11 +27,25 @@ export default function HandwritingAnalysisScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [currentStrokeCount, setCurrentStrokeCount] = useState(0);
   const [currentUser, setCurrentUser] = useState<string>('');
+  const [users, setUsers] = useState<{ id: string; name: string }[]>([]);
 
   // Load current user on mount
   useEffect(() => {
     AsyncStorage.getItem('currentUser').then(user => {
       if (user) setCurrentUser(user);
+    });
+
+    // load users list so we can map id -> display name when saving
+    AsyncStorage.getItem('users').then(u => {
+      try {
+        if (u) {
+          const parsed = JSON.parse(u);
+          if (Array.isArray(parsed)) setUsers(parsed);
+        }
+      } catch (e) {
+        // ignore parse errors
+        console.warn('Failed to parse users from AsyncStorage', e);
+      }
     });
   }, []);
 
@@ -41,20 +56,45 @@ export default function HandwritingAnalysisScreen() {
   };
 
   const saveCharacter = async () => {
-    if (strokes.length === 0 || !currentUser || !resultText) return;
-    
-    setIsSaving(true);
-  const url = API_URL + '/save_user_character';
-    
+    if (!currentUser || !resultText) return;
+
+    // compute display username: if currentUser is an id, map to name from users list
+    let userName = currentUser;
     try {
-  const response = await fetch(url, {
+      const match = users.find(u => u.id === currentUser || u.name === currentUser);
+      if (match) userName = match.name;
+    } catch (e) {
+      // ignore
+    }
+
+    const pointsPayload = strokes.flat().map(p => ({
+      x: p.x,
+      y: p.y,
+      x_norm: p.x_norm,
+      y_norm: p.y_norm,
+      timestamp: p.timestamp,
+      stroke_count: p.stroke_count,
+    }));
+
+    if (!pointsPayload || pointsPayload.length === 0) {
+      // helpful feedback and debugging info when no points available
+      console.warn('Attempted to save but there are no stroke points. strokes state:', strokes);
+      setResultText(prev => (prev ? prev + '\n' : '') + 'No points to save. Draw on the canvas before saving.');
+      return;
+    }
+
+    setIsSaving(true);
+    const url = API_URL + '/save_user_character';
+
+    try {
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          points_data: strokes.flat(),
-          user: currentUser,
+          points_data: pointsPayload,
+          user: userName,
           ascii_char: resultText.split(/[\s()%]/)[0] // Get just the character, removing confidence and any whitespace
         })
       });
@@ -64,9 +104,9 @@ export default function HandwritingAnalysisScreen() {
       }
 
       const data = await response.json();
-      setResultText(prev => prev + '\nSaved successfully!');
+      setResultText(prev => (prev ? prev + '\n' : '') + 'Saved successfully!');
     } catch (err) {
-      setResultText(prev => prev + '\nFailed to save: ' + (err instanceof Error ? err.message : String(err)));
+      setResultText(prev => (prev ? prev + '\n' : '') + 'Failed to save: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsSaving(false);
     }
@@ -116,11 +156,19 @@ export default function HandwritingAnalysisScreen() {
     <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
       <ThemedView style={styles.container}>
         <ThemedText style={styles.title}>Handwriting Analysis</ThemedText>
+        
+        <ThemedText style={styles.label}>Current User:</ThemedText>
+        <Picker
+          selectedValue={currentUser}
+          style={styles.picker}
+          onValueChange={(val) => setCurrentUser(val)}
+        >
+          <Picker.Item label="Select a user" value="" />
+          {users.map(u => <Picker.Item key={u.id} label={u.name} value={u.id} />)}
+        </Picker>
+
         <ThemedText style={styles.instruction}>
-          Write the following sentence:
-        </ThemedText>
-        <ThemedText style={styles.sampleText}>
-          "The brown dog jumped over the lazy dog."
+          Write a character and save it below.
         </ThemedText>
 
         <View
@@ -273,15 +321,19 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     color: '#000000',
   },
+  label: {
+    fontSize: 16,
+    marginBottom: 6,
+    color: '#000000',
+  },
+  picker: {
+    height: 50,
+    width: '100%',
+    marginBottom: 12,
+  },
   instruction: {
     fontSize: 18,
     marginBottom: 10,
-    color: '#000000',
-  },
-  sampleText: {
-    fontSize: 16,
-    fontStyle: 'italic',
-    marginBottom: 20,
     color: '#000000',
   },
   canvas: {

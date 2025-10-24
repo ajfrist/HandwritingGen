@@ -458,6 +458,15 @@ def visualize_comparison(character, best_key, s_key='s'):
     x_times_s = character_splines[character.__hash__()][s_key]['x_times']
     y_times_s = character_splines[character.__hash__()][s_key]['y_times']
 
+    scaled_x_values_best = character_splines[character.__hash__()][best_key+"_scaled"]['x_values']
+    scaled_y_values_best = character_splines[character.__hash__()][best_key+"_scaled"]['y_values']
+    scaled_x_times_best = character_splines[character.__hash__()][best_key+"_scaled"]['x_times']
+    scaled_y_times_best = character_splines[character.__hash__()][best_key+"_scaled"]['y_times']
+    scaled_x_values_s = character_splines[character.__hash__()][s_key+"_scaled"]['x_values']
+    scaled_y_values_s = character_splines[character.__hash__()][s_key+"_scaled"]['y_values']
+    scaled_x_times_s = character_splines[character.__hash__()][s_key+"_scaled"]['x_times']
+    scaled_y_times_s = character_splines[character.__hash__()][s_key+"_scaled"]['y_times']
+
 
     # build traces for X(t)
     traces_x = []
@@ -481,6 +490,14 @@ def visualize_comparison(character, best_key, s_key='s'):
     traces_x.append(go.Scatter(x=x_times_s, y=x_values_s,
                                mode='lines', line=dict(color='green', width=2, dash='dash'),
                                name=f"current aligned -> {s_key}", visible='legendonly'))
+    # current aligned & scaled -> best
+    traces_x.append(go.Scatter(x=scaled_x_times_best, y=scaled_x_values_best,
+                               mode='lines', line=dict(color='blue', width=1, dash='dot'),
+                               name=f"current aligned+scaled -> {best_key}", visible='legendonly'))
+    # current aligned & scaled -> s
+    traces_x.append(go.Scatter(x=scaled_x_times_s, y=scaled_x_values_s,
+                               mode='lines', line=dict(color='green', width=1, dash='dot'),
+                               name=f"current aligned+scaled -> {s_key}", visible='legendonly'))
 
     # build traces for Y(t)
     traces_y = []
@@ -499,6 +516,12 @@ def visualize_comparison(character, best_key, s_key='s'):
     traces_y.append(go.Scatter(x=y_times_s, y=y_values_s,
                                mode='lines', line=dict(color='green', width=2, dash='dash'),
                                name=f"better current aligned -> {s_key}", visible='legendonly'))
+    traces_y.append(go.Scatter(x=scaled_y_times_best, y=scaled_y_values_best,
+                               mode='lines', line=dict(color='blue', width=1, dash='dot'), 
+                               name=f"current aligned+scaled -> {best_key}", visible='legendonly'))
+    traces_y.append(go.Scatter(x=scaled_y_times_s, y=scaled_y_values_s,
+                               mode='lines', line=dict(color='green', width=1, dash='dot'),
+                               name=f"current aligned+scaled -> {s_key}", visible='legendonly'))
 
     # set graphing padding
     def padding_amount(a_min, a_max):

@@ -3,12 +3,13 @@ import glob
 import pickle
 
 
-def save_character(character, user="default", path=None):
+def save_character(character, user="default", path=None, char_letter=None):
     """Pickle the character to disk; chooses next name if path is None."""
     if user != "default":
-        user_dir = os.path.join(os.getcwd(), "python/user_data", user)
+        user_dir = os.path.join(os.getcwd(), "user_data", user)
         os.makedirs(user_dir, exist_ok=True)
-        char_letter = input("Enter character you are saving: ")
+        if char_letter is None:
+            char_letter = input("Enter character you are saving: ")
         character.ascii_char = char_letter
         if char_letter.isupper():
             char_letter = char_letter.lower() + 'c'

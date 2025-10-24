@@ -208,10 +208,12 @@ async def api_save_reference(payload: Dict[str, Any]):
 @app.post('/save_user_character')
 async def api_save_user_character(payload: Dict[str, Any]):
     """Save a character to a user's personal collection."""
-    points_data = payload.get('points', [])
+    points_data = payload.get('points_data', [])
     user = payload.get('user', 'default')
     ascii_char = payload.get('ascii_char')
-    
+    print(points_data)
+    print(user)
+    print(ascii_char)
     if not points_data or not ascii_char:
         raise HTTPException(status_code=400, detail='points data and ascii_char required')
         
@@ -221,7 +223,7 @@ async def api_save_user_character(payload: Dict[str, Any]):
     
     # Use the save_character function from main.py
     try:
-        saved_path = save_character(char, user=user)
+        saved_path = save_character(char, user=user, char_letter=ascii_char)
         if not saved_path:
             raise HTTPException(status_code=500, detail='Failed to save character')
         return {'saved': os.path.basename(saved_path)}
