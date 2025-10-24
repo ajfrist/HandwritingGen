@@ -39,6 +39,7 @@ def generate_spline(character_list: list[Character]):
         # Create splines for x and y coordinates of reference character
         #chars_adjusted.append([build_interpolant(ref_times, ref_x), build_interpolant(ref_times, ref_y)])
         adjusted_times_arrays.append([ref_times, ref_x, np.array(ref_times), ref_y])
+        x_y_props = [character_list[0].x_to_y_proportion()]
 
         # # Average values across all character data
         # for i, character in enumerate(character_list):
@@ -99,6 +100,8 @@ def generate_spline(character_list: list[Character]):
             max_x_time = max(max_x_time, times_x[-1])
             max_y_time = max(max_y_time, times_y[-1])
 
+            x_y_props.append(character.x_to_y_proportion())
+
         for char_arrays in adjusted_times_arrays:
             times_x, char_x, times_y, char_y = char_arrays
 
@@ -130,12 +133,14 @@ def generate_spline(character_list: list[Character]):
         # Average across all chars
         avg_x = adj_vals[:, 0].mean(axis=0)
         avg_y = adj_vals[:, 1].mean(axis=0)
+        x_to_y = sum(x_y_props) / len(x_y_props)
     else:
         points = list(character_list[0].all_points())
         x_times = np.array([p.timestamp for p in points])
         y_times = np.array([p.timestamp for p in points])
         avg_x = np.array([p.x_norm for p in points])
         avg_y = np.array([p.y_norm for p in points])
+        x_to_y = character_list[0].x_to_y_proportion()
 
     x_times, avg_x, y_times, avg_y = add_padding(x_times, avg_x, y_times, avg_y)
     print(x_times[0], x_times[-1], y_times[0], y_times[-1], x_times.shape, avg_x.shape, y_times.shape, avg_y.shape)
@@ -146,7 +151,7 @@ def generate_spline(character_list: list[Character]):
     assert abs(x_times[-1] - y_times[-1]) < 0.017 * 2
 
     return build_interpolant(x_times, avg_x), build_interpolant(y_times, avg_y), \
-           (0, x_times[-1])
+           (0, x_times[-1]), x_to_y
 
 def load_user_data(user: str):
     """Loads user handwriting data from storage.
@@ -168,10 +173,10 @@ def load_user_data(user: str):
             character_list = [character_list]
         if not character_list:
             continue
-        x_spline, y_spline, time_range = generate_spline(character_list)
+        x_spline, y_spline, time_range, x_to_y = generate_spline(character_list)
         
         if x_spline is not None and y_spline is not None:
-            splines[char] = (x_spline, y_spline, time_range)
+            splines[char] = (x_spline, y_spline, time_range, x_to_y)
 
     return splines
 
@@ -203,19 +208,21 @@ def generate_sentence_character(text: str, user: str="reference") -> list[Charac
     splines = get_user_splines(user)
     character_sentence = Character()
     start_offset = 0.0 # seconds
+    horz_offset = 0.0 # horizontal offset for multiple characters, unitless
     time_between_characters = 0.2  # seconds
     
     for char in text:
         if char in splines:
-            x_spline, y_spline, time_range = splines[char]
+            x_spline, y_spline, time_range, x_to_y = splines[char]
             writing_time = np.linspace(time_range[0], time_range[1], int(60 * (time_range[1] - time_range[0])) + 1)
-            x = x_spline(writing_time)
-            y = y_spline(writing_time)
+            xs = x_spline(writing_time) * x_to_y
+            ys = y_spline(writing_time)
 
             s = Stroke()
-            for x, y, time in zip(x, y, writing_time):
-                s.add_point(TouchPoint(x, y, time + start_offset))
+            for x, y, time in zip(xs, ys, writing_time):
+                s.add_point(TouchPoint(x+horz_offset, y, time + start_offset))
             character_sentence.add_stroke(s)
             start_offset += time_range[1] - time_range[0] + time_between_characters
+            horz_offset = horz_offset + xs.max()  # Increment horizontal offset for next character
 
     return character_sentence

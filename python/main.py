@@ -367,15 +367,25 @@ while running:
         txt = font.render(f"Playback time: {elapsed:.2f}s", True, (255, 255, 255))
         screen.blit(txt, (10, 10))
 
+        # Draw rect to display inside
+        rect_left, rect_top, rect_width, rect_height = 100, 100, WIDTH/2, WIDTH/2
+        pygame.draw.rect(screen, (50, 50, 50), (rect_left, rect_top, rect_width, rect_height))
+
         # Draw strokes progressively
         # for stroke in trim_leading_time(normalize_positions(current_character)):
-        for stroke in current_character.denormalized().denormalized().denormalized():
-        
-            pts = [
-                (p.get_x(WIDTH), p.get_y(HEIGHT))
-                for p in stroke if p.timestamp <= elapsed
-            ]
+        # for stroke in current_character.denormalized().denormalized().denormalized():
+
+        all_pts = np.array([ [p.x_norm, p.y_norm] for p in current_character.all_points()])
+
+        for stroke in current_character:
+
+            pts = [ [p.x_norm, p.y_norm] for p in stroke if p.timestamp <= elapsed ]
             if len(pts) > 1:
+                pts = np.array(pts)
+                pts = pts / all_pts.max()
+                scaler = rect_width if all_pts.max(axis=0)[0] / all_pts.max(axis=0)[1] > rect_width / rect_height else rect_height
+
+                pts = pts * scaler + np.array([rect_left, rect_top])
                 pygame.draw.lines(screen, (200, 200, 0), False, pts, 2)
 
     # Overlay identification results when available
