@@ -194,7 +194,50 @@ def reset_loaded_user_splines():
     global USER_SPLINES
     USER_SPLINES = None
     
-#     return characters
+def get_pixel_points(character: Character, rect_left: float, rect_top: float, rect_width: float, rect_height: float) -> list[dict]:
+    """Convert a Character object into a list of pixel-space points for drawing.
+    
+    Args:
+        character: The Character object to convert
+        rect_left: Left coordinate of drawing rectangle
+        rect_top: Top coordinate of drawing rectangle  
+        rect_width: Width of drawing rectangle
+        rect_height: Height of drawing rectangle
+
+    Returns:
+        List of dicts containing {x: pixel_x, y: pixel_y, timestamp: t} for each point
+    """
+    pixel_points = []
+    all_pts = np.array([[p.x_norm, p.y_norm] for p in character.all_points()])
+    
+    # Iterate through strokes to maintain stroke count information
+    for stroke_idx, stroke in enumerate(character.strokes):
+        # Convert points in this stroke
+        stroke_pts = np.array([[p.x_norm, p.y_norm] for p in stroke])
+        
+        if len(stroke_pts) == 0:
+            continue
+            
+        stroke_pts = stroke_pts / all_pts.max() if len(all_pts) > 0 else stroke_pts  # Normalize to [0, 1] range
+
+        # Scale normalized points to fit in drawing rectangle
+        x_vals = rect_left + stroke_pts[:, 0] * rect_width 
+        y_vals = rect_top + stroke_pts[:, 1] * rect_height
+
+        # Get timestamps from original points
+        timestamps = [p.timestamp for p in stroke]
+
+        # Create point dicts with pixel coordinates and stroke count
+        for x, y, t in zip(x_vals, y_vals, timestamps):
+            pixel_points.append({
+                'x': float(x),
+                'y': float(y),
+                'timestamp': float(t),
+                'stroke_count': stroke_idx
+            })
+
+    return pixel_points
+
 def generate_sentence_character(text: str, user: str="reference") -> list[Character]:
     """Generate Character object that comprises many Characters
       from the input text using user splines, ready for drawing on screen.
