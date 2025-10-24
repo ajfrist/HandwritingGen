@@ -18,22 +18,21 @@ def get_average_time_step(times):
         return 0.01
     return float(np.median(diffs))
 
-def adjust_time_delay(times, array, ref_times, ref_array, optimize_scaling: bool = False):
+def adjust_time_delay(times, array, ref_times, ref_array):
     """
-    Align `array` to `ref_array` by finding the time delay and (optionally) time scaling that maximizes their
-    cross-correlation. Returns a new times array shifted and (optionally) scaled for optimal alignment.
+    Align `array` to `ref_array` by finding the time delay and time scaling that maximizes their
+    cross-correlation. Returns a new times array shifted and scaled for optimal alignment.
 
     Parameters:
     - times: 1D array of timestamps for `array`
     - array: 1D array of sample values (may contain None or np.nan for gaps)
     - ref_array: 1D array of reference sample values (may contain None/np.nan)
     - ref_times: optional 1D array of timestamps for ref_array; if None an equispaced
-        axis will be created for ref_array spanning the same interval as `times`.
-    - optimize_scaling: If True, search for best time scaling factor (0.5x to 2.0x). If False, only optimize time shift.
+      axis will be created for ref_array spanning the same interval as `times`.
 
     Returns:
-    - times_shifted: numpy array same shape as `times`, shifted and (optionally) scaled to best align with ref_array.
-        The time values are scaled by a factor between 0.5 and 2.0 to maximize correlation if optimize_scaling is True.
+    - times_shifted: numpy array same shape as `times`, shifted and scaled to best align with ref_array.
+      The time values are scaled by a factor between 0.5 and 2.0 to maximize correlation.
     """
     # Basic validation
     if times is None or array is None or ref_array is None:
@@ -140,107 +139,29 @@ def adjust_time_delay(times, array, ref_times, ref_array, optimize_scaling: bool
         delta = 0.5 * (y0 - y2) / denom
         return float(k) + delta
 
+    # Convert correlation indices to lag seconds for all possible positions
+    num_r = len(grid_r)
+    num_a = len(grid_a)
+    # lags run from -(num_r-1) .. (num_a-1)
+    lag_indices = np.arange(-(num_r - 1), (num_a))
+    lag_seconds_all = lag_indices * dt
+
     # Determine allowable maximum shift: 75% of reference time span
     ref_span = float(t_r.max() - t_r.min()) if t_r.size > 1 else 0.0
     max_allowed_shift = 0.75 * ref_span
+
+    # If reference span is zero (degenerate), allow only very small shifts (one dt)
     if max_allowed_shift <= 0:
         max_allowed_shift = dt
 
-    # If requested, search scale factors and evaluate ALL correlation peaks for each scale
-    if optimize_scaling:
-        best_score = -np.inf
-        best_scale = 1.0
-        best_lag_seconds = 0.0
-        best_idx_frac = None
-
-        # Test scale factors from 0.5 to 2.0 in increments of 0.1
-        for scale in np.arange(0.5, 2.1, 0.1):
-            # Scale the time array (but not the reference)
-            t_a_scaled = t_a * scale
-            dt_scaled = get_average_time_step(t_a_scaled)
-            # Recompute grid for scaled time
-            grid_scaled = np.arange(min(t_a_scaled.min(), t_r.min()),
-                                    max(t_a_scaled.max(), t_r.max()) + dt_scaled/2,
-                                    dt_scaled)
-
-            def interp_scaled(t_src, v_src):
-                # reuse interp logic but with the scaled grid
-                if t_src.size == 1:
-                    return np.full_like(grid_scaled, float(v_src[0]), dtype=float)
-                order = np.argsort(t_src)
-                t_sorted = t_src[order]
-                v_sorted = v_src[order]
-                unique_t, unique_idx = np.unique(t_sorted, return_index=True)
-                t_u = unique_t
-                v_u = v_sorted[unique_idx]
-                return np.interp(grid_scaled, t_u, v_u, left=v_u[0], right=v_u[-1])
-
-            grid_a_s = interp_scaled(t_a_scaled, v_a)
-            grid_r_s = interp_scaled(t_r, v_r)
-
-            # zero-mean and normalize
-            ga_z = grid_a_s - np.mean(grid_a_s)
-            gr_z = grid_r_s - np.mean(grid_r_s)
-            std_ga = np.std(ga_z)
-            std_gr = np.std(gr_z)
-            if std_ga > 0:
-                ga_z = ga_z / std_ga
-            if std_gr > 0:
-                gr_z = gr_z / std_gr
-
-            corr_s = np.correlate(ga_z, gr_z, mode='full')
-
-            # Evaluate every possible peak (cartesian product: every scale × every lag)
-            num_r_s = len(grid_r_s)
-            lag_indices_s = np.arange(-(num_r_s - 1), len(ga_z))
-            for idx in range(len(corr_s)):
-                # parabolic refinement on this scale's correlation
-                idx_frac = parabolic_peak(corr_s, idx)
-                # fractional lag in samples
-                lag_frac_samples = idx_frac - (num_r_s - 1)
-                lag_sec_frac = float(lag_frac_samples * dt_scaled)
-
-                # Only accept lags within allowed bounds
-                if abs(lag_sec_frac) > max_allowed_shift:
-                    continue
-
-                # compute interpolated peak value using neighboring points if possible
-                if 0 < int(idx) < len(corr_s) - 1:
-                    y0, y1, y2 = corr_s[int(idx) - 1], corr_s[int(idx)], corr_s[int(idx) + 1]
-                    denom = (y0 - 2 * y1 + y2)
-                    if denom != 0:
-                        delta = 0.5 * (y0 - y2) / denom
-                        # parabolic peak value (interpolated)
-                        peak_val = y1 + 0.5 * (y0 - y2) * delta / 2.0
-                    else:
-                        peak_val = corr_s[int(idx)]
-                else:
-                    peak_val = corr_s[int(idx)]
-
-                # Update best if this candidate is better
-                if peak_val > best_score:
-                    best_score = peak_val
-                    best_scale = scale
-                    best_lag_seconds = lag_sec_frac
-                    best_idx_frac = idx_frac
-
-        # Apply best found scale and lag (if any). If none found, fall back to original times
-        if best_idx_frac is None:
-            # no acceptable peak found: return scaled times according to best_scale (or original if unchanged)
-            return times * best_scale
-        else:
-            times_scaled = times * best_scale
-            times_shifted = times_scaled - float(best_lag_seconds)
-            return times_shifted
-
-    # If scaling not requested, fall back to selecting lag from the original (unscaled) correlation
+    # Consider peaks in descending order of correlation magnitude, pick first
+    # peak whose lag is within allowed bounds. If none found, fall back to no shift.
     corr_indices_sorted = np.argsort(corr)[::-1]  # indices into corr sorted by value desc
     chosen_idx_frac = None
     chosen_lag_seconds = None
 
     for idx in corr_indices_sorted:
         # integer lag corresponding to this correlation index
-        num_r = len(grid_r)
         lag_samples = idx - (num_r - 1)
         lag_sec = float(lag_samples * dt)
         # Accept if lag does not move the entire array more than allowed
@@ -256,10 +177,10 @@ def adjust_time_delay(times, array, ref_times, ref_array, optimize_scaling: bool
                 break
 
     if chosen_idx_frac is None:
-        # No acceptable peak found: do not shift
+        # No acceptable peak found: do not shift (safer than aligning totally off)
         return times
 
-    # Apply shift (no scaling)
+    # shift original times so array would be aligned with ref_array
     times_shifted = times - float(chosen_lag_seconds)
     return times_shifted
 
@@ -393,28 +314,6 @@ def character_error(character, reference_character, ref_ascii, orig_char):
         'y_values': char_y,
         'x_times': char_times_x,
         'y_times': char_times_y
-    }
-
-    # Show extra adjusted cartesian products 
-    char_times2 = np.asarray([p.timestamp for p in char_pts], dtype=float)
-    char_x2 = np.asarray([p.x_norm for p in char_pts], dtype=float)
-    char_y2 = np.asarray([p.y_norm for p in char_pts], dtype=float)
-
-    ref_times2 = np.asarray([p.timestamp for p in ref_pts], dtype=float)
-    ref_x2 = np.asarray([p.x_norm for p in ref_pts], dtype=float)
-    ref_y2 = np.asarray([p.y_norm for p in ref_pts], dtype=float)
-
-    char_times_x2 = adjust_time_delay(char_times2, char_x2, ref_times2, ref_x2, True)
-    char_times_y2 = adjust_time_delay(char_times2, char_y2, ref_times2, ref_y2, True)
-    char_times_x2, char_x2, ref_times2, ref_x2 = clean_arrays(char_times_x2, char_x2, ref_times2, ref_x2)
-    char_times_y2, char_y2, ref_times2, ref_y2 = clean_arrays(char_times_y2, char_y2, ref_times2, ref_y2)
-    char_times_x2, char_x2, ref_times_x2, ref_x2 = add_padding(char_times_x2, char_x2, ref_times2, ref_x2)
-    char_times_y2, char_y2, ref_times_y2, ref_y2 = add_padding(char_times_y2, char_y2, ref_times2, ref_y2)
-    all_character_adjusted_splines[orig_char.__hash__()][ref_ascii+"_scaled"] = {
-        'x_values': char_x2,
-        'y_values': char_y2,
-        'x_times': char_times_x2,
-        'y_times': char_times_y2
     }
 
     # evaluate interpolants at character timestamps
