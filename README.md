@@ -81,9 +81,9 @@ cd HandwritingGen
 
 2. Install Python packages
 ```bash
-cd backend
-pip install --upgrade pip
-pip install -r requirements.txt
+# from repository root, with venv active
+python -m pip install --upgrade pip
+pip install -r python/requirements.txt
 ```
 
 3. Run the backend (FastAPI / Uvicorn example)
@@ -91,7 +91,7 @@ pip install -r requirements.txt
 # from repository root
 cd python
 # ensure venv is active
-python -m uvicorn app.api_server:app --reload --host 0.0.0.0 --port 5000
+python -m uvicorn api_server:app --host 0.0.0.0 --port 5000 --reload
 ```
 
 ### 3) Frontend (Node) setup
@@ -107,7 +107,7 @@ npm install
 ```
 API_URL=http://<BACKEND_IP>:5000/
 ```
-Replace `<BACKEND_IP>` with your machine IP (e.g., `192.168.1.10`) or `localhost` if accessing from same machine.
+Replace `<BACKEND_IP>` with your machine LAN IP (e.g., `192.168.1.10`) or `localhost` if accessing from same machine.
 
 3. Run the frontend (development)
 ```bash
