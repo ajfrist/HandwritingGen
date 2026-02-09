@@ -3,10 +3,11 @@ import { ThemedView } from '@/components/themed-view';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Picker } from '@react-native-picker/picker';
 
-import { API_URL } from '@/constants/api';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
 interface Point {
   // server may return either normalized coords (x_norm/y_norm) or pixel coords (x/y)
@@ -38,11 +39,11 @@ export default function HandwritingSynthesisScreen() {
     setError('');
 
     try {
-  const url = API_URL + '/generate';
+      const url = API_URL + '/generate';
       // send user display name instead of id
       const userName = users.find(u => u.id === currentUser)?.name || currentUser;
-
-  const response = await fetch(url, {
+                
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

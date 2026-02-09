@@ -16,7 +16,7 @@ Stores user splines, in format:
 def generate_spline(character_list: list[Character]):
     """Creates a spline based on collected data from user handwriting. 
     Input is list of Characters by same ASCII character.
-    Returns an x and y parametric callable function.
+    Returns an x and y parametric callable function, a time range array, and an x-to-y scaler proportion.
     """
     ascii_char = character_list[0].ascii_char
     if ascii_char == None:

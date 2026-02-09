@@ -3,10 +3,11 @@ import { ThemedView } from '@/components/themed-view';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Picker } from '@react-native-picker/picker';
 
-import { API_URL } from '@/constants/api';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, LayoutChangeEvent, PanResponder, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
 interface TouchPoint {
   x: number;

@@ -87,11 +87,29 @@ def adjust_time_delay(times, array, ref_times, ref_array):
     else:
         dt = 0.01
 
+    # Assertion check: Clamp dt to a reasonable minimum to avoid huge arrays
+    min_dt = 1e-4  # 0.1 ms minimum step
+    max_points = 1000000  # 1 million max points in grid
+    if dt < min_dt:
+        print(f"[adjust_time_delay] dt too small ({dt}), clamping to {min_dt}")
+        dt = min_dt
+
+    # find overall time span covering both arrays
     t0 = min(t_a.min(), t_r.min())
     t1 = max(t_a.max(), t_r.max())
     if t1 <= t0:
         # degenerate span
         return times
+
+    # Assertion check: for checking arrays are not incorrectly large
+    est_points = int((t1 - t0) / dt) + 1
+    if est_points > max_points:
+        print(f"[adjust_time_delay] Estimated grid points ({est_points}) exceeds max ({max_points}), increasing dt.")
+        dt = (t1 - t0) / max_points
+        est_points = max_points
+    print(f"[adjust_time_delay] t0={t0}, t1={t1}, dt={dt}, est_points={est_points}")
+
+    # generate uniform grid covering the span of both arrays
     grid = np.arange(t0, t1 + dt/2.0, dt)
 
     # Interpolate onto grid

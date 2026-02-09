@@ -72,7 +72,7 @@ class Character:
 
     def __str__(self):
         return f"Character with {len(self.strokes)} strokes\n" + \
-                f"{self.x_range}, {self.y_range}"
+                f"x range: {self.x_range}, y range: {self.y_range}"
     
     def __repr__(self):
         return f"Character({self.__hash__()})"

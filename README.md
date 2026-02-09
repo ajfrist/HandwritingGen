@@ -4,7 +4,7 @@ HandwritingGen is an application for synthesizing handwriting from a user's trai
 
 ---
 
-## Key features
+## Key Features
 
 - Train a handwriting synthesis model on user-provided samples
 - Serve model inference via an HTTP API
@@ -12,7 +12,7 @@ HandwritingGen is an application for synthesizing handwriting from a user's trai
 
 ---
 
-## Target users
+## Target Users
 
 - Programmers and Data Science researchers and students who want a quick pipeline for handwriting synthesis experiments
 - Developers building handwriting-style features (font generation, stylized text)
@@ -20,7 +20,7 @@ HandwritingGen is an application for synthesizing handwriting from a user's trai
 
 ---
 
-## Tech stack
+## Tech Stack
 
 - Backend: Python (FastAPI recommended) for model training, inference, and REST API with Uvicorn
 - Model code: Numpy to store and cross-compute across data
@@ -39,17 +39,16 @@ HandwritingGen is an application for synthesizing handwriting from a user's trai
 
 ---
 
-## Environment variables
+## Environment Variables
 
-You must configure an environment variable for the frontend to connect to the proper IP address. Create `.env` files in the `frontend/` directory, and save your LAN IP address. 
+You must configure an environment variable for the frontend to connect to the proper IP address. Create the file `.env` in the `frontend/` directory, and save the IP address on which you will run the server. This could be `localhost` or your local IP in the form of `EXPO_PUBLIC_API_URL=http://<IPaddress>:<port>`.
 
-Example frontend `.env` (frontend/.env):
+Example frontend `.env` with default, local frontend connection configuration:
 ```
-API_URL=http://10.110.29.137:5000
-
+EXPO_PUBLIC_API_URL=http://localhost:5000
 ```
 
-Important: Replace `192.168.1.10` with the IP address of the machine running your backend if you want to access it from other devices on the same LAN. Using `0.0.0.0` as the backend host exposes it to the network (uvicorn / FastAPI CLI uses `--host 0.0.0.0`), but API clients need the concrete IP (not `0.0.0.0`) to call from outside. To get yours, enter the `ipconfig` command into the terminal and look for IPv4 Address.
+**Important**: Replace `localhost` with the IP address of the machine running your backend if you want to access it from other devices on the same LAN. Passing `0.0.0.0` to the backend host exposes it to the network (uvicorn / FastAPI CLI uses `--host 0.0.0.0`), but API clients need the concrete IP (not `0.0.0.0`) to call from outside. To get yours, enter the `ipconfig` command into the terminal and look for IPv4 Address.
 
 ---
 
@@ -91,23 +90,23 @@ pip install -r python/requirements.txt
 # from repository root
 cd python
 # ensure venv is active
+python -m uvicorn api_server:app --port 5000 --reload
+```
+  To expose backend to devices on the LAN network, insead run:
+```bash
 python -m uvicorn api_server:app --host 0.0.0.0 --port 5000 --reload
 ```
 
 ### 3) Frontend (Node) setup
 
-1. Install dependencies and create frontend env
+1. Install dependencies
 ```bash
 # from repository root
 cd frontend
 npm install
 ```
 
-2. Configure frontend `.env` (inside `frontend/.env`):
-```
-API_URL=http://<BACKEND_IP>:5000/
-```
-Replace `<BACKEND_IP>` with your machine LAN IP (e.g., `192.168.1.10`) or `localhost` if accessing from same machine.
+2. Configure frontend `.env` (see above [Environment Variables](#environment-variables)):
 
 3. Run the frontend (development)
 ```bash

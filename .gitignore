@@ -7,3 +7,8 @@ venv_symlink
 *.bak
 
 test*
+
+node_modules
+
+.vscode
+.expo
